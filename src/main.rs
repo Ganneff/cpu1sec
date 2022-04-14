@@ -114,7 +114,6 @@ fn config() -> Result<(), Box<dyn Error>> {
     let stdout = io::stdout();
     let numcores = procfs::CpuInfo::new()?.num_cores();
     let bufsize = numcores * 3000;
-    debug!("bufsize: {bufsize}");
     let mut handle = BufWriter::with_capacity(bufsize, stdout.lock());
 
     writeln!(handle, "multigraph cpu1sec")?;
@@ -215,6 +214,7 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
             .map(|i| (i.1.clone() - i.0.clone()))
             .collect();
 
+        // Want to ensure the cache file is closed, before we sleep
         {
             // Write out data to cache file
             let mut cachefd = BufWriter::with_capacity(
@@ -255,12 +255,13 @@ fn fetch(cache: &Path) -> Result<(), Box<dyn Error>> {
     let mut handle = BufWriter::with_capacity(65536, stdout.lock());
     // Want to read the tempfile now
     let mut fetchfile = std::fs::File::open(&fetchpath)?;
-    // And ask io::copy to just take it all and show it into stdout
+    // And ask io::copy to just take it all and shove it into stdout
     io::copy(&mut fetchfile, &mut handle)?;
     handle.flush()?;
     Ok(())
 }
 
+/// Store CPU values
 #[derive(Debug, Clone, PartialEq)]
 struct CpuStat {
     cpu: u32,
@@ -277,8 +278,11 @@ struct CpuStat {
     guest_nice: u64,
 }
 
+/// Simple way of writing out the associated data
 impl std::fmt::Display for CpuStat {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // If you really have u32::max CPUs in your system then you
+        // lost here. We take that as the field for "total".
         let cpu = if self.cpu == u32::max_value() {
             "total".to_string()
         } else {
@@ -303,6 +307,8 @@ impl std::fmt::Display for CpuStat {
     }
 }
 
+/// Defaults, mainly setting the epoch to the second of "creation" of
+/// this dataset
 impl Default for CpuStat {
     fn default() -> Self {
         CpuStat {
@@ -325,6 +331,7 @@ impl Default for CpuStat {
     }
 }
 
+/// For diffing, we want to be able to substract CpuStats
 impl Sub for CpuStat {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
@@ -342,6 +349,24 @@ impl Sub for CpuStat {
             guest: self.guest - other.guest,
             guest_nice: self.guest_nice - other.guest_nice,
         }
+    }
+}
+
+/// Take CpuTime and shove it into CpuStat
+fn cpu_stat_to_value(cpu: u32, stat: CpuTime) -> CpuStat {
+    CpuStat {
+        cpu,
+        user: stat.user,
+        nice: stat.nice,
+        system: stat.system,
+        idle: stat.idle,
+        iowait: stat.iowait.unwrap(),
+        irq: stat.irq.unwrap(),
+        softirq: stat.softirq.unwrap(),
+        steal: stat.steal.unwrap(),
+        guest: stat.guest.unwrap(),
+        guest_nice: stat.guest_nice.unwrap(),
+        ..Default::default()
     }
 }
 
@@ -394,23 +419,6 @@ fn test_sub() {
         },
         diff
     );
-}
-
-fn cpu_stat_to_value(cpu: u32, stat: CpuTime) -> CpuStat {
-    CpuStat {
-        cpu,
-        user: stat.user,
-        nice: stat.nice,
-        system: stat.system,
-        idle: stat.idle,
-        iowait: stat.iowait.unwrap(),
-        irq: stat.irq.unwrap(),
-        softirq: stat.softirq.unwrap(),
-        steal: stat.steal.unwrap(),
-        guest: stat.guest.unwrap(),
-        guest_nice: stat.guest_nice.unwrap(),
-        ..Default::default()
-    }
 }
 
 /// Manage it all.
