@@ -24,3 +24,20 @@ procfs = "^0.12"
 [profile.release]
 lto = true
 codegen-units = 1
+
+[package.metadata.deb]
+assets = [
+    ["target/release/cpu1sec", "usr/share/munin/plugins/cpu1sec_", "755"],
+]
+maintainer-scripts = "debian/"
+section = "net"
+priority = "optional"
+extended-description="1second resolution graphs for CPU data"
+maintainer = "Joerg Jaspert <joerg@ganneff.de>"
+copyright = "2022, Joerg Jaspert <joerg@ganneff.de>"
+depends = ""
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/cpu1sec", dest = "/usr/share/munin/plugins/cpu1sec_", mode = "755" },
+]
