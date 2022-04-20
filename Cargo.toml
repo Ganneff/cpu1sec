@@ -1,6 +1,6 @@
 [package]
 name = "cpu1sec"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "munin graph plugin for cpu statistics, 1second resolution"
 license = "GPL-3.0-only"
@@ -27,7 +27,7 @@ codegen-units = 1
 
 [package.metadata.deb]
 assets = [
-    ["target/release/cpu1sec", "usr/share/munin/plugins/cpu1sec_", "755"],
+    ["target/release/cpu1sec", "usr/share/munin/plugins/cpu1sec", "755"],
 ]
 maintainer-scripts = "debian/"
 section = "net"
@@ -39,5 +39,5 @@ depends = ""
 
 [package.metadata.generate-rpm]
 assets = [
-    { source = "target/release/cpu1sec", dest = "/usr/share/munin/plugins/cpu1sec_", mode = "755" },
+    { source = "target/release/cpu1sec", dest = "/usr/share/munin/plugins/cpu1sec", mode = "755" },
 ]
