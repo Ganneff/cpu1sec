@@ -292,8 +292,10 @@ impl std::fmt::Display for CpuStat {
         // If you really have u32::max CPUs in your system then you
         // lost here. We take that as the field for "total".
         let cpu = if self.cpu == u32::max_value() {
+            writeln!(f, "multigraph cpu1sec")?;
             "total".to_string()
         } else {
+            writeln!(f, "multigraph cpu1sec.cpu{}", self.cpu)?;
             format!("cpu{}", self.cpu)
         };
 
