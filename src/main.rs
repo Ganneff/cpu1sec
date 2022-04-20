@@ -233,7 +233,8 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
             );
 
             for cpustat in diff {
-                writeln!(cachefd, "{cpustat}")?;
+                // Linebreak is added within the display of cpustat, so we do not need to do this
+                write!(cachefd, "{cpustat}")?;
             }
         }
         // And save value for next round
@@ -304,7 +305,7 @@ impl std::fmt::Display for CpuStat {
         writeln!(f, "{}_softirq.value {}:{}", cpu, self.epoch, self.softirq)?;
         writeln!(f, "{}_steal.value {}:{}", cpu, self.epoch, self.steal)?;
         writeln!(f, "{}_guest.value {}:{}", cpu, self.epoch, self.guest)?;
-        write!(
+        writeln!(
             f,
             "{}_guest_nice.value {}:{}",
             cpu, self.epoch, self.guest_nice
