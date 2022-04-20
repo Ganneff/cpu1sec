@@ -23,8 +23,8 @@ use std::{
 };
 use tempfile::NamedTempFile;
 
+// Write out the detailed config per core/for totals
 fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), Box<dyn Error>> {
-    let uplimit = procfs::CpuInfo::new()?.num_cores() * 100;
     writeln!(handle, "graph_title CPU usage {cpu} (1sec)")?;
     writeln!(handle, "graph_category system")?;
     writeln!(handle, "update_rate 1",)?;
@@ -36,6 +36,11 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
         handle,
         "graph_order system user nice idle iowait irq softirq"
     )?;
+    let uplimit = if cpu.eq("total") {
+        procfs::CpuInfo::new()?.num_cores() * 100
+    } else {
+        100
+    };
     writeln!(
         handle,
         "graph_args --base 1000 -r --lower-limit 0 --upper-limit {}",
