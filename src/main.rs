@@ -107,6 +107,11 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
     writeln!(handle, "{cpu}_guest.min 0")?;
     writeln!(handle, "{cpu}_guest.type DERIVE")?;
     writeln!(handle, "{cpu}_guest.info The time spent running a virtual CPU for guest operating systems under the control of the Linux kernel.")?;
+    writeln!(handle, "{cpu}_guest_nice.label guest_nice")?;
+    writeln!(handle, "{cpu}_guest_nice.draw STACK")?;
+    writeln!(handle, "{cpu}_guest_nice.min 0")?;
+    writeln!(handle, "{cpu}_guest_nice.type DERIVE")?;
+    writeln!(handle, "{cpu}_guest_nice.info The time spent running a nice(1)d virtual CPU for guest operating systems under the control of the Linux kernel.")?;
     Ok(())
 }
 
