@@ -176,12 +176,12 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
         nice: ks.nice,
         system: ks.system,
         idle: ks.idle,
-        iowait: ks.iowait.expect("Dang"),
-        irq: ks.irq.expect("Dang"),
-        softirq: ks.softirq.expect("Dang"),
-        steal: ks.steal.expect("Dang"),
-        guest: ks.guest.expect("Dang"),
-        guest_nice: ks.guest_nice.expect("Dang"),
+        iowait: ks.iowait.unwrap_or(0),
+        irq: ks.irq.unwrap_or(0),
+        softirq: ks.softirq.unwrap_or(0),
+        steal: ks.steal.unwrap_or(0),
+        guest: ks.guest.unwrap_or(0),
+        guest_nice: ks.guest_nice.unwrap_or(0),
         ..Default::default()
     });
 
@@ -204,12 +204,12 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
             nice: ks.nice,
             system: ks.system,
             idle: ks.idle,
-            iowait: ks.iowait.expect("Dang"),
-            irq: ks.irq.expect("Dang"),
-            softirq: ks.softirq.expect("Dang"),
-            steal: ks.steal.expect("Dang"),
-            guest: ks.guest.expect("Dang"),
-            guest_nice: ks.guest_nice.expect("Dang"),
+            iowait: ks.iowait.unwrap_or(0),
+            irq: ks.irq.unwrap_or(0),
+            softirq: ks.softirq.unwrap_or(0),
+            steal: ks.steal.unwrap_or(0),
+            guest: ks.guest.unwrap_or(0),
+            guest_nice: ks.guest_nice.unwrap_or(0),
             ..Default::default()
         });
         // Calculate the difference
@@ -365,12 +365,12 @@ fn cpu_stat_to_value(cpu: u32, stat: CpuTime) -> CpuStat {
         nice: stat.nice,
         system: stat.system,
         idle: stat.idle,
-        iowait: stat.iowait.unwrap(),
-        irq: stat.irq.unwrap(),
-        softirq: stat.softirq.unwrap(),
-        steal: stat.steal.unwrap(),
-        guest: stat.guest.unwrap(),
-        guest_nice: stat.guest_nice.unwrap(),
+        iowait: stat.iowait.unwrap_or(0),
+        irq: stat.irq.unwrap_or(0),
+        softirq: stat.softirq.unwrap_or(0),
+        steal: stat.steal.unwrap_or(0),
+        guest: stat.guest.unwrap_or(0),
+        guest_nice: stat.guest_nice.unwrap_or(0),
         ..Default::default()
     }
 }
