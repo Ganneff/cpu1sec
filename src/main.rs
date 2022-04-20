@@ -163,26 +163,26 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
     debug!("{cachefile:#?}, buffersize: {bufsize}");
     // Fetch data once already, so old is not empty when we go into loop and calculate first diff.
     // First diff MAY end up pretty small, but that doesn't matter
-    let mut old: Vec<CpuStat> = KernelStats::new()
-        .unwrap()
+    let mut ks = KernelStats::new()?;
+    let mut old: Vec<CpuStat> = ks
         .cpu_time
         .into_iter()
         .enumerate()
         .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat))
         .collect();
     // We want CPU total too, so add it
-    let mut ks = KernelStats::new()?.total;
+    // let mut ks = KernelStats::new()?.total;
     old.push(CpuStat {
-        user: ks.user,
-        nice: ks.nice,
-        system: ks.system,
-        idle: ks.idle,
-        iowait: ks.iowait.unwrap_or(0),
-        irq: ks.irq.unwrap_or(0),
-        softirq: ks.softirq.unwrap_or(0),
-        steal: ks.steal.unwrap_or(0),
-        guest: ks.guest.unwrap_or(0),
-        guest_nice: ks.guest_nice.unwrap_or(0),
+        user: ks.total.user,
+        nice: ks.total.nice,
+        system: ks.total.system,
+        idle: ks.total.idle,
+        iowait: ks.total.iowait.unwrap_or(0),
+        irq: ks.total.irq.unwrap_or(0),
+        softirq: ks.total.softirq.unwrap_or(0),
+        steal: ks.total.steal.unwrap_or(0),
+        guest: ks.total.guest.unwrap_or(0),
+        guest_nice: ks.total.guest_nice.unwrap_or(0),
         ..Default::default()
     });
 
@@ -192,25 +192,26 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
         loop_helper.loop_start();
 
         // Get current CPU stat data
-        let mut new: Vec<CpuStat> = KernelStats::new()?
+        ks = KernelStats::new()?;
+        let mut new: Vec<CpuStat> = ks
             .cpu_time
             .into_iter()
             .enumerate()
             .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat))
             .collect();
         // And add the total one
-        ks = KernelStats::new()?.total;
+        // ks = KernelStats::new()?.total;
         new.push(CpuStat {
-            user: ks.user,
-            nice: ks.nice,
-            system: ks.system,
-            idle: ks.idle,
-            iowait: ks.iowait.unwrap_or(0),
-            irq: ks.irq.unwrap_or(0),
-            softirq: ks.softirq.unwrap_or(0),
-            steal: ks.steal.unwrap_or(0),
-            guest: ks.guest.unwrap_or(0),
-            guest_nice: ks.guest_nice.unwrap_or(0),
+            user: ks.total.user,
+            nice: ks.total.nice,
+            system: ks.total.system,
+            idle: ks.total.idle,
+            iowait: ks.total.iowait.unwrap_or(0),
+            irq: ks.total.irq.unwrap_or(0),
+            softirq: ks.total.softirq.unwrap_or(0),
+            steal: ks.total.steal.unwrap_or(0),
+            guest: ks.total.guest.unwrap_or(0),
+            guest_nice: ks.total.guest_nice.unwrap_or(0),
             ..Default::default()
         });
         // Calculate the difference
