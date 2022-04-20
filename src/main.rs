@@ -112,13 +112,14 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
 
 /// Print out munin config data
 ///
-/// Will print out config data per host as listed from [get_hosts],
-/// preparing for multiple graphs, one summary and 3 detail ones.
+/// Will print out config data, preparing for multiple graphs, one
+/// summary and one per CPU core.
 fn config() -> Result<(), Box<dyn Error>> {
     // We want to write a large amount to stdout, take and lock it
     let stdout = io::stdout();
     let numcores = procfs::CpuInfo::new()?.num_cores();
     let bufsize = numcores * 3000;
+    // Buffered writer, to gather multiple small writes together
     let mut handle = BufWriter::with_capacity(bufsize, stdout.lock());
 
     writeln!(handle, "multigraph cpu1sec")?;
