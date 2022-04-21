@@ -195,7 +195,7 @@ fn acquire(cachefile: &Path, pidfile: &Path, cpudetail: bool) -> Result<(), Box<
         steal: ks.total.steal.unwrap_or(0),
         guest: ks.total.guest.unwrap_or(0),
         guest_nice: ks.total.guest_nice.unwrap_or(0),
-        cpudetail: cpudetail,
+        cpudetail,
         ..Default::default()
     });
     // We run forever
@@ -227,7 +227,7 @@ fn acquire(cachefile: &Path, pidfile: &Path, cpudetail: bool) -> Result<(), Box<
             steal: ks.total.steal.unwrap_or(0),
             guest: ks.total.guest.unwrap_or(0),
             guest_nice: ks.total.guest_nice.unwrap_or(0),
-            cpudetail: cpudetail,
+            cpudetail,
             ..Default::default()
         });
         // Calculate the difference
