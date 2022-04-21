@@ -53,7 +53,7 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
     writeln!(handle, "{cpu}_system.label system")?;
     writeln!(handle, "{cpu}_system.draw AREA")?;
     writeln!(handle, "{cpu}_system.min 0")?;
-    writeln!(handle, "{cpu}_system.type DERIVE")?;
+    writeln!(handle, "{cpu}_system.type GAUGE")?;
     writeln!(
         handle,
         "{cpu}_system.info CPU time spent by the kernel in system activities"
@@ -61,7 +61,7 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
     writeln!(handle, "{cpu}_user.label user")?;
     writeln!(handle, "{cpu}_user.draw STACK")?;
     writeln!(handle, "{cpu}_user.min 0")?;
-    writeln!(handle, "{cpu}_user.type DERIVE")?;
+    writeln!(handle, "{cpu}_user.type GAUGE")?;
     writeln!(
         handle,
         "{cpu}_user.info CPU time spent by normal programs and daemons"
@@ -69,7 +69,7 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
     writeln!(handle, "{cpu}_nice.label nice")?;
     writeln!(handle, "{cpu}_nice.draw STACK")?;
     writeln!(handle, "{cpu}_nice.min 0")?;
-    writeln!(handle, "{cpu}_nice.type DERIVE")?;
+    writeln!(handle, "{cpu}_nice.type GAUGE")?;
     writeln!(
         handle,
         "{cpu}_nice.info CPU time spent by nice(1)d programs"
@@ -77,22 +77,22 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
     writeln!(handle, "{cpu}_idle.label idle")?;
     writeln!(handle, "{cpu}_idle.draw STACK")?;
     writeln!(handle, "{cpu}_idle.min 0")?;
-    writeln!(handle, "{cpu}_idle.type DERIVE")?;
+    writeln!(handle, "{cpu}_idle.type GAUGE")?;
     writeln!(handle, "{cpu}_idle.info Idle CPU time")?;
     writeln!(handle, "{cpu}_iowait.label iowait")?;
     writeln!(handle, "{cpu}_iowait.draw STACK")?;
     writeln!(handle, "{cpu}_iowait.min 0")?;
-    writeln!(handle, "{cpu}_iowait.type DERIVE")?;
+    writeln!(handle, "{cpu}_iowait.type GAUGE")?;
     writeln!(handle, "{cpu}_iowait.info CPU time spent waiting for I/O operations to finish when there is nothing else to do.")?;
     writeln!(handle, "{cpu}_irq.label irq")?;
     writeln!(handle, "{cpu}_irq.draw STACK")?;
     writeln!(handle, "{cpu}_irq.min 0")?;
-    writeln!(handle, "{cpu}_irq.type DERIVE")?;
+    writeln!(handle, "{cpu}_irq.type GAUGE")?;
     writeln!(handle, "{cpu}_irq.info CPU time spent handling interrupts")?;
     writeln!(handle, "{cpu}_softirq.label softirq")?;
     writeln!(handle, "{cpu}_softirq.draw STACK")?;
     writeln!(handle, "{cpu}_softirq.min 0")?;
-    writeln!(handle, "{cpu}_softirq.type DERIVE")?;
+    writeln!(handle, "{cpu}_softirq.type GAUGE")?;
     writeln!(
         handle,
         "{cpu}_softirq.info CPU time spent handling \"batched\" interrupts"
@@ -100,17 +100,17 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
     writeln!(handle, "{cpu}_steal.label steal")?;
     writeln!(handle, "{cpu}_steal.draw STACK")?;
     writeln!(handle, "{cpu}_steal.min 0")?;
-    writeln!(handle, "{cpu}_steal.type DERIVE")?;
+    writeln!(handle, "{cpu}_steal.type GAUGE")?;
     writeln!(handle, "{cpu}_steal.info The time that a virtual CPU had runnable tasks, but the virtual CPU itself was not running")?;
     writeln!(handle, "{cpu}_guest.label guest")?;
     writeln!(handle, "{cpu}_guest.draw STACK")?;
     writeln!(handle, "{cpu}_guest.min 0")?;
-    writeln!(handle, "{cpu}_guest.type DERIVE")?;
+    writeln!(handle, "{cpu}_guest.type GAUGE")?;
     writeln!(handle, "{cpu}_guest.info The time spent running a virtual CPU for guest operating systems under the control of the Linux kernel.")?;
     writeln!(handle, "{cpu}_guest_nice.label guest_nice")?;
     writeln!(handle, "{cpu}_guest_nice.draw STACK")?;
     writeln!(handle, "{cpu}_guest_nice.min 0")?;
-    writeln!(handle, "{cpu}_guest_nice.type DERIVE")?;
+    writeln!(handle, "{cpu}_guest_nice.type GAUGE")?;
     writeln!(handle, "{cpu}_guest_nice.info The time spent running a nice(1)d virtual CPU for guest operating systems under the control of the Linux kernel.")?;
     Ok(())
 }
