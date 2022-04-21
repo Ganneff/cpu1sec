@@ -119,7 +119,7 @@ fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), B
 ///
 /// Will print out config data, preparing for multiple graphs, one
 /// summary and one per CPU core.
-fn config() -> Result<(), Box<dyn Error>> {
+fn config(cpudetail: bool) -> Result<(), Box<dyn Error>> {
     // We want to write a large amount to stdout, take and lock it
     let stdout = io::stdout();
     let numcores = procfs::CpuInfo::new()?.num_cores();
@@ -127,12 +127,16 @@ fn config() -> Result<(), Box<dyn Error>> {
     // Buffered writer, to gather multiple small writes together
     let mut handle = BufWriter::with_capacity(bufsize, stdout.lock());
 
-    writeln!(handle, "multigraph cpu1sec")?;
+    if cpudetail {
+        writeln!(handle, "multigraph cpu1sec")?;
+    }
     write_details(&mut handle, "total")?;
-    for num in 0..numcores {
-        let f = format!("cpu{num}");
-        writeln!(handle, "multigraph cpu1sec.{f}")?;
-        write_details(&mut handle, &f)?;
+    if cpudetail {
+        for num in 0..numcores {
+            let f = format!("cpu{num}");
+            writeln!(handle, "multigraph cpu1sec.{f}")?;
+            write_details(&mut handle, &f)?;
+        }
     }
     // And flush it, so it can also deal with possible errors
     handle.flush()?;
@@ -147,7 +151,7 @@ fn config() -> Result<(), Box<dyn Error>> {
 ///
 /// We read the values from the statistic files and parse them to a
 /// [u64], that ought to be big enough to not overflow.
-fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
+fn acquire(cachefile: &Path, pidfile: &Path, cpudetail: bool) -> Result<(), Box<dyn Error>> {
     trace!("Going to daemonize");
 
     // We want to run as daemon, so prepare
@@ -169,14 +173,17 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
     // Fetch data once already, so old is not empty when we go into loop and calculate first diff.
     // First diff MAY end up pretty small, but that doesn't matter
     let mut ks = KernelStats::new()?;
-    let mut old: Vec<CpuStat> = ks
-        .cpu_time
-        .into_iter()
-        .enumerate()
-        .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat))
-        .collect();
-    // We want CPU total too, so add it
-    // let mut ks = KernelStats::new()?.total;
+    let mut old: Vec<CpuStat> = if cpudetail {
+        ks.cpu_time
+            .into_iter()
+            .enumerate()
+            .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat, cpudetail))
+            .collect()
+        // We want CPU total too, so add it
+        // let mut ks = KernelStats::new()?.total;
+    } else {
+        vec![]
+    };
     old.push(CpuStat {
         user: ks.total.user,
         nice: ks.total.nice,
@@ -188,9 +195,9 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
         steal: ks.total.steal.unwrap_or(0),
         guest: ks.total.guest.unwrap_or(0),
         guest_nice: ks.total.guest_nice.unwrap_or(0),
+        cpudetail: cpudetail,
         ..Default::default()
     });
-
     // We run forever
     loop {
         // Let loop helper prepare
@@ -198,12 +205,15 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
 
         // Get current CPU stat data
         ks = KernelStats::new()?;
-        let mut new: Vec<CpuStat> = ks
-            .cpu_time
-            .into_iter()
-            .enumerate()
-            .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat))
-            .collect();
+        let mut new: Vec<CpuStat> = if cpudetail {
+            ks.cpu_time
+                .into_iter()
+                .enumerate()
+                .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat, cpudetail))
+                .collect()
+        } else {
+            vec![]
+        };
         // And add the total one
         // ks = KernelStats::new()?.total;
         new.push(CpuStat {
@@ -217,6 +227,7 @@ fn acquire(cachefile: &Path, pidfile: &Path) -> Result<(), Box<dyn Error>> {
             steal: ks.total.steal.unwrap_or(0),
             guest: ks.total.guest.unwrap_or(0),
             guest_nice: ks.total.guest_nice.unwrap_or(0),
+            cpudetail: cpudetail,
             ..Default::default()
         });
         // Calculate the difference
@@ -289,6 +300,7 @@ struct CpuStat {
     steal: u64,
     guest: u64,
     guest_nice: u64,
+    cpudetail: bool,
 }
 
 /// Simple way of writing out the associated data
@@ -297,10 +309,14 @@ impl std::fmt::Display for CpuStat {
         // If you really have u32::max CPUs in your system then you
         // lost here. We take that as the field for "total".
         let cpu = if self.cpu == u32::max_value() {
-            writeln!(f, "multigraph cpu1sec")?;
+            if self.cpudetail {
+                writeln!(f, "multigraph cpu1sec")?;
+            }
             "total".to_string()
         } else {
-            writeln!(f, "multigraph cpu1sec.cpu{}", self.cpu)?;
+            if self.cpudetail {
+                writeln!(f, "multigraph cpu1sec.cpu{}", self.cpu)?;
+            }
             format!("cpu{}", self.cpu)
         };
 
@@ -328,6 +344,7 @@ impl Default for CpuStat {
     fn default() -> Self {
         CpuStat {
             cpu: u32::max_value(),
+            cpudetail: false,
             epoch: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("Couldn't get epoch")
@@ -363,14 +380,16 @@ impl Sub for CpuStat {
             steal: self.steal - other.steal,
             guest: self.guest - other.guest,
             guest_nice: self.guest_nice - other.guest_nice,
+            cpudetail: self.cpudetail,
         }
     }
 }
 
 /// Take CpuTime and shove it into CpuStat
-fn cpu_stat_to_value(cpu: u32, stat: CpuTime) -> CpuStat {
+fn cpu_stat_to_value(cpu: u32, stat: CpuTime, cpudetail: bool) -> CpuStat {
     CpuStat {
         cpu,
+        cpudetail,
         user: stat.user,
         nice: stat.nice,
         system: stat.system,
@@ -400,6 +419,7 @@ fn test_sub() {
         steal: 42,
         guest: 42,
         guest_nice: 42,
+        cpudetail: false,
     };
 
     let two = CpuStat {
@@ -415,6 +435,7 @@ fn test_sub() {
         steal: 21,
         guest: 21,
         guest_nice: 21,
+        cpudetail: true,
     };
     let diff = one - two;
     assert_eq!(
@@ -431,6 +452,7 @@ fn test_sub() {
             steal: 21,
             guest: 21,
             guest_nice: 21,
+            cpudetail: false,
         },
         diff
     );
@@ -467,6 +489,13 @@ fn main() {
         Err(_) => false,
     };
     debug!("Dirtyconfig is: {:?}", dirtyconfig);
+
+    // Should we do detailed graphs, or only totals?
+    let cpudetail = match env::var("cpudetail") {
+        Ok(val) => val.eq(&"1"),
+        Err(_) => false,
+    };
+    debug!("cpudetail is: {:?}", cpudetail);
 
     // Now go over our other args and see what we are supposed to do
     match args.len() {
@@ -509,7 +538,7 @@ fn main() {
         2 => match args[1].as_str() {
             "config" => {
                 trace!("Called to hand out config");
-                config().expect("Could not write out config");
+                config(cpudetail).expect("Could not write out config");
                 // If munin supports the dirtyconfig feature, we can hand out the data
                 if dirtyconfig {
                     if let Err(e) = fetch(&cache) {
@@ -524,7 +553,7 @@ fn main() {
                 // one process has our pidfile already locked, ie. if
                 // another acquire is running. (Or if we can not
                 // daemonize for another reason).
-                if let Err(e) = acquire(&cache, &pidfile) {
+                if let Err(e) = acquire(&cache, &pidfile, cpudetail) {
                     error!("Error: {}", e);
                     std::process::exit(5);
                 };
