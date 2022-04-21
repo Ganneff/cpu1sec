@@ -16,6 +16,27 @@ When first called without arguments, cpu1sec will spawn itself into the
 background to gather data. This can also be triggered by calling it
 with the `acquire` parameter.
 
+## Detailed graphs
+Per default this plugin will only produce a "total" graph, similar to
+what the default cpu plugin from munin does (though in much higher
+resolution, obviously).
+
+The plugin can produce the graphs per CPU/core on the system. Then the
+view "total" will be the front, when you click it, you get a detail
+graph of every CPU core on the system.
+
+To activate this, set the environment variable cpudetail to 1, say in
+`/etc/munin/plugin-conf.d/cpu1sec.conf` put
+```
+[cpu1sec]
+env.cpudetail=1
+```
+
+### Filesize
+Note that every graph has 10 datasets, and each dataset uses ~11MB on
+disk. If you have many cores, enabling cpudetail may easily run you
+out of disk space!
+
 ## Local build
 Use cargo build as usual. Note that the release build contains much
 less logging code than the debug build, so if you want to find out,
