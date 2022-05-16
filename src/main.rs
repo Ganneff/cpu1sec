@@ -4,302 +4,56 @@
 
 #![warn(missing_docs)]
 
-use daemonize::Daemonize;
-use fs2::FileExt;
-use log::{debug, error, info, trace, warn};
+use anyhow::Result;
+use log::{debug, info, warn};
+use munin_plugin::{Config, MuninPlugin};
 use procfs::{CpuTime, KernelStats};
 use simple_logger::SimpleLogger;
-use spin_sleep::LoopHelper;
 use std::{
     env,
-    error::Error,
-    fs::{rename, File, OpenOptions},
+    fs::{rename, OpenOptions},
     io::{self, BufWriter, Write},
     ops::Sub,
-    path::Path,
-    process::{Command, Stdio},
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tempfile::NamedTempFile;
 
-// Write out the detailed config per core/for totals
-fn write_details<W: Write>(handle: &mut BufWriter<W>, cpu: &str) -> Result<(), Box<dyn Error>> {
-    writeln!(handle, "graph_title CPU usage {cpu} (1sec)")?;
-    writeln!(handle, "graph_category system")?;
-    writeln!(handle, "update_rate 1",)?;
-    writeln!(
-        handle,
-        "graph_data_size custom 1d, 1s for 1d, 5s for 2d, 10s for 7d, 1m for 1t, 5m for 1y",
-    )?;
-    writeln!(
-        handle,
-        "graph_order system user nice idle iowait irq softirq"
-    )?;
-    let uplimit = if cpu.eq("total") {
-        procfs::CpuInfo::new()?.num_cores() * 100
-    } else {
-        100
-    };
-    writeln!(
-        handle,
-        "graph_args --base 1000 -r --lower-limit 0 --upper-limit {}",
-        uplimit
-    )?;
-    writeln!(handle, "graph_vlabel %")?;
-    writeln!(handle, "graph_scale no")?;
-    writeln!(handle, "graph_info This graph shows how CPU time is spent.")?;
-
-    writeln!(handle, "{cpu}_system.label system")?;
-    writeln!(handle, "{cpu}_system.draw AREA")?;
-    writeln!(handle, "{cpu}_system.min 0")?;
-    writeln!(handle, "{cpu}_system.type GAUGE")?;
-    writeln!(
-        handle,
-        "{cpu}_system.info CPU time spent by the kernel in system activities"
-    )?;
-    writeln!(handle, "{cpu}_user.label user")?;
-    writeln!(handle, "{cpu}_user.draw STACK")?;
-    writeln!(handle, "{cpu}_user.min 0")?;
-    writeln!(handle, "{cpu}_user.type GAUGE")?;
-    writeln!(
-        handle,
-        "{cpu}_user.info CPU time spent by normal programs and daemons"
-    )?;
-    writeln!(handle, "{cpu}_nice.label nice")?;
-    writeln!(handle, "{cpu}_nice.draw STACK")?;
-    writeln!(handle, "{cpu}_nice.min 0")?;
-    writeln!(handle, "{cpu}_nice.type GAUGE")?;
-    writeln!(
-        handle,
-        "{cpu}_nice.info CPU time spent by nice(1)d programs"
-    )?;
-    writeln!(handle, "{cpu}_idle.label idle")?;
-    writeln!(handle, "{cpu}_idle.draw STACK")?;
-    writeln!(handle, "{cpu}_idle.min 0")?;
-    writeln!(handle, "{cpu}_idle.type GAUGE")?;
-    writeln!(handle, "{cpu}_idle.info Idle CPU time")?;
-    writeln!(handle, "{cpu}_iowait.label iowait")?;
-    writeln!(handle, "{cpu}_iowait.draw STACK")?;
-    writeln!(handle, "{cpu}_iowait.min 0")?;
-    writeln!(handle, "{cpu}_iowait.type GAUGE")?;
-    writeln!(handle, "{cpu}_iowait.info CPU time spent waiting for I/O operations to finish when there is nothing else to do.")?;
-    writeln!(handle, "{cpu}_irq.label irq")?;
-    writeln!(handle, "{cpu}_irq.draw STACK")?;
-    writeln!(handle, "{cpu}_irq.min 0")?;
-    writeln!(handle, "{cpu}_irq.type GAUGE")?;
-    writeln!(handle, "{cpu}_irq.info CPU time spent handling interrupts")?;
-    writeln!(handle, "{cpu}_softirq.label softirq")?;
-    writeln!(handle, "{cpu}_softirq.draw STACK")?;
-    writeln!(handle, "{cpu}_softirq.min 0")?;
-    writeln!(handle, "{cpu}_softirq.type GAUGE")?;
-    writeln!(
-        handle,
-        "{cpu}_softirq.info CPU time spent handling \"batched\" interrupts"
-    )?;
-    writeln!(handle, "{cpu}_steal.label steal")?;
-    writeln!(handle, "{cpu}_steal.draw STACK")?;
-    writeln!(handle, "{cpu}_steal.min 0")?;
-    writeln!(handle, "{cpu}_steal.type GAUGE")?;
-    writeln!(handle, "{cpu}_steal.info The time that a virtual CPU had runnable tasks, but the virtual CPU itself was not running")?;
-    writeln!(handle, "{cpu}_guest.label guest")?;
-    writeln!(handle, "{cpu}_guest.draw STACK")?;
-    writeln!(handle, "{cpu}_guest.min 0")?;
-    writeln!(handle, "{cpu}_guest.type GAUGE")?;
-    writeln!(handle, "{cpu}_guest.info The time spent running a virtual CPU for guest operating systems under the control of the Linux kernel.")?;
-    writeln!(handle, "{cpu}_guest_nice.label guest_nice")?;
-    writeln!(handle, "{cpu}_guest_nice.draw STACK")?;
-    writeln!(handle, "{cpu}_guest_nice.min 0")?;
-    writeln!(handle, "{cpu}_guest_nice.type GAUGE")?;
-    writeln!(handle, "{cpu}_guest_nice.info The time spent running a nice(1)d virtual CPU for guest operating systems under the control of the Linux kernel.")?;
-    Ok(())
-}
-
-/// Print out munin config data
-///
-/// Will print out config data, preparing for multiple graphs, one
-/// summary and one per CPU core.
-fn config(cpudetail: bool) -> Result<(), Box<dyn Error>> {
-    // We want to write a large amount to stdout, take and lock it
-    let stdout = io::stdout();
-    let numcores = procfs::CpuInfo::new()?.num_cores();
-    let bufsize = numcores * 3000;
-    // Buffered writer, to gather multiple small writes together
-    let mut handle = BufWriter::with_capacity(bufsize, stdout.lock());
-
-    if cpudetail {
-        writeln!(handle, "multigraph cpu1sec")?;
-    }
-    write_details(&mut handle, "total")?;
-    if cpudetail {
-        for num in 0..numcores {
-            let f = format!("cpu{num}");
-            writeln!(handle, "multigraph cpu1sec.{f}")?;
-            write_details(&mut handle, &f)?;
-        }
-    }
-    // And flush it, so it can also deal with possible errors
-    handle.flush()?;
-
-    Ok(())
-}
-
-/// Gather the data from the system.
-///
-/// Daemonize into background and then run a loop forever, that
-/// fetches data once a second and appends it to files in the given cachepath.
-///
-/// We read the values from the statistic files and parse them to a
-/// [u64], that ought to be big enough to not overflow.
-fn acquire(cachefile: &Path, pidfile: &Path, cpudetail: bool) -> Result<(), Box<dyn Error>> {
-    trace!("Going to daemonize");
-
-    // We want to run as daemon, so prepare
-    let daemonize = Daemonize::new()
-        .pid_file(pidfile)
-        .chown_pid_file(true)
-        .working_directory("/tmp");
-
-    // And off into the background we go
-    daemonize.start()?;
-
-    // The loop helper makes it easy to repeat a loop once a second
-    let mut loop_helper = LoopHelper::builder().build_with_target_rate(1); // Only once a second
-
-    // Buffer size is count of cpu times 400, that is enough
-    let bufsize = procfs::CpuInfo::new()?.num_cores() * 400;
-
-    debug!("{cachefile:#?}, buffersize: {bufsize}");
-    // Fetch data once already, so old is not empty when we go into loop and calculate first diff.
-    // First diff MAY end up pretty small, but that doesn't matter
-    let mut ks = KernelStats::new()?;
-    let mut old: Vec<CpuStat> = if cpudetail {
-        ks.cpu_time
-            .into_iter()
-            .enumerate()
-            .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat, cpudetail))
-            .collect()
-        // We want CPU total too, so add it
-        // let mut ks = KernelStats::new()?.total;
-    } else {
-        vec![]
-    };
-    old.push(CpuStat {
-        user: ks.total.user,
-        nice: ks.total.nice,
-        system: ks.total.system,
-        idle: ks.total.idle,
-        iowait: ks.total.iowait.unwrap_or(0),
-        irq: ks.total.irq.unwrap_or(0),
-        softirq: ks.total.softirq.unwrap_or(0),
-        steal: ks.total.steal.unwrap_or(0),
-        guest: ks.total.guest.unwrap_or(0),
-        guest_nice: ks.total.guest_nice.unwrap_or(0),
-        cpudetail,
-        ..Default::default()
-    });
-    // We run forever
-    loop {
-        // Let loop helper prepare
-        loop_helper.loop_start();
-
-        // Get current CPU stat data
-        ks = KernelStats::new()?;
-        let mut new: Vec<CpuStat> = if cpudetail {
-            ks.cpu_time
-                .into_iter()
-                .enumerate()
-                .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat, cpudetail))
-                .collect()
-        } else {
-            vec![]
-        };
-        // And add the total one
-        // ks = KernelStats::new()?.total;
-        new.push(CpuStat {
-            user: ks.total.user,
-            nice: ks.total.nice,
-            system: ks.total.system,
-            idle: ks.total.idle,
-            iowait: ks.total.iowait.unwrap_or(0),
-            irq: ks.total.irq.unwrap_or(0),
-            softirq: ks.total.softirq.unwrap_or(0),
-            steal: ks.total.steal.unwrap_or(0),
-            guest: ks.total.guest.unwrap_or(0),
-            guest_nice: ks.total.guest_nice.unwrap_or(0),
-            cpudetail,
-            ..Default::default()
-        });
-        // Calculate the difference
-        let diff: Vec<CpuStat> = old
-            .iter()
-            .zip(new.iter())
-            .map(|i| (i.1.clone() - i.0.clone()))
-            .collect();
-
-        // Want to ensure the cache file is closed, before we sleep
-        {
-            // Write out data to cache file
-            let mut cachefd = BufWriter::with_capacity(
-                bufsize,
-                OpenOptions::new()
-                    .create(true) // If not there, create
-                    .write(true) // We want to write
-                    .append(true) // We want to append
-                    .open(&cachefile)?,
-            );
-
-            for cpustat in diff {
-                // Linebreak is added within the display of cpustat, so we do not need to do this
-                write!(cachefd, "{cpustat}")?;
-            }
-        }
-        // And save value for next round
-        old = new;
-
-        // Sleep for the rest of the second
-        loop_helper.loop_sleep();
-    }
-}
-
-/// Hand out the collected cpu data
-///
-/// Basically a "mv file tmpfile && cat tmpfile && rm tmpfile",
-/// as the file is already in proper format
-fn fetch(cache: &Path) -> Result<(), Box<dyn Error>> {
-    // We need a temporary file
-    let fetchpath =
-        NamedTempFile::new_in(cache.parent().expect("Could not find useful temp path"))?;
-    debug!("Fetchcache: {:?}, Cache: {:?}", fetchpath, cache);
-    // Rename the cache file, to ensure that acquire doesn't add data
-    // between us outputting data and deleting the file
-    rename(&cache, &fetchpath)?;
-    // We want to write possibly large amount to stdout, take and lock it
-    let stdout = io::stdout();
-    let mut handle = BufWriter::with_capacity(65536, stdout.lock());
-    // Want to read the tempfile now
-    let mut fetchfile = std::fs::File::open(&fetchpath)?;
-    // And ask io::copy to just take it all and shove it into stdout
-    io::copy(&mut fetchfile, &mut handle)?;
-    handle.flush()?;
-    Ok(())
-}
-
-/// Store CPU values
-#[derive(Debug, Clone, PartialEq)]
+/// Stores CPU values (ticks), so we can easily put them in a vector,
+/// substract them to know difference, ...
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct CpuStat {
+    /// Number of CPU data is for. Will be [u32::MAX] for "total". If
+    /// one really has so many CPU cores in their system: Sorry, lost,
+    /// this plugin won't work (in detailed mode) then.
     cpu: u32,
+    /// Epoch the data belongs to
     epoch: u64,
+    /// Ticks spent in user mode
     user: u64,
+    /// Ticks spent in user mode with low priority (nice)
     nice: u64,
+    /// Ticks spent in system mode
     system: u64,
+    /// Ticks spent in the idle state
     idle: u64,
+    /// Ticks waiting for I/O to complete (unreliable)
     iowait: u64,
+    /// Ticks servicing interrupts
     irq: u64,
+    /// Ticks servicing softirqs
     softirq: u64,
+    /// Ticks of stolen time.
+    ///
+    /// Stolen time is the time spent in other operating systems when
+    /// running in a virtualized environment
     steal: u64,
+    /// Ticks spent running a virtual CPU for guest operating systems
+    /// under control of the linux kernel
     guest: u64,
+    /// Ticks spent running a niced guest
     guest_nice: u64,
+    /// Same as [CpuPlugin::cpudetail]
     cpudetail: bool,
 }
 
@@ -308,7 +62,7 @@ impl std::fmt::Display for CpuStat {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         // If you really have u32::max CPUs in your system then you
         // lost here. We take that as the field for "total".
-        let cpu = if self.cpu == u32::max_value() {
+        let cpu = if self.cpu == u32::MAX {
             if self.cpudetail {
                 writeln!(f, "multigraph cpu1sec")?;
             }
@@ -343,8 +97,10 @@ impl std::fmt::Display for CpuStat {
 impl Default for CpuStat {
     fn default() -> Self {
         CpuStat {
+            /// By default we assume we do graphs for "total"
             cpu: u32::max_value(),
             cpudetail: false,
+            /// Data is for *right* *now*
             epoch: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("Couldn't get epoch")
@@ -368,7 +124,9 @@ impl Sub for CpuStat {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
         Self {
+            /// No sense substracting CPU number
             cpu: self.cpu,
+            /// We always take the newer epoch
             epoch: other.epoch,
             user: self.user - other.user,
             nice: self.nice - other.nice,
@@ -380,27 +138,9 @@ impl Sub for CpuStat {
             steal: self.steal - other.steal,
             guest: self.guest - other.guest,
             guest_nice: self.guest_nice - other.guest_nice,
+            /// Boolean value does not substract
             cpudetail: self.cpudetail,
         }
-    }
-}
-
-/// Take CpuTime and shove it into CpuStat
-fn cpu_stat_to_value(cpu: u32, stat: CpuTime, cpudetail: bool) -> CpuStat {
-    CpuStat {
-        cpu,
-        cpudetail,
-        user: stat.user,
-        nice: stat.nice,
-        system: stat.system,
-        idle: stat.idle,
-        iowait: stat.iowait.unwrap_or(0),
-        irq: stat.irq.unwrap_or(0),
-        softirq: stat.softirq.unwrap_or(0),
-        steal: stat.steal.unwrap_or(0),
-        guest: stat.guest.unwrap_or(0),
-        guest_nice: stat.guest_nice.unwrap_or(0),
-        ..Default::default()
     }
 }
 
@@ -458,116 +198,296 @@ fn test_sub() {
     );
 }
 
-/// Manage it all.
-///
-/// Note that, while we do have extensive logging statements all over
-/// the code, we use the crates feature to **not** compile in levels
-/// we do not want. So in devel/debug builds, we have all levels
-/// including trace! available, release build will only show warn! and
-/// error! logs (tiny amount).
-fn main() {
-    SimpleLogger::new().init().unwrap();
-    info!("cpu1sec started");
-    // Store arguments for later use
-    let args: Vec<String> = env::args().collect();
+/// Take CpuTime and shove it into CpuStat
+fn cpu_stat_to_value(cpu: u32, stat: CpuTime, cpudetail: bool) -> CpuStat {
+    CpuStat {
+        cpu,
+        cpudetail,
+        user: stat.user,
+        nice: stat.nice,
+        system: stat.system,
+        idle: stat.idle,
+        iowait: stat.iowait.unwrap_or(0),
+        irq: stat.irq.unwrap_or(0),
+        softirq: stat.softirq.unwrap_or(0),
+        steal: stat.steal.unwrap_or(0),
+        guest: stat.guest.unwrap_or(0),
+        guest_nice: stat.guest_nice.unwrap_or(0),
+        ..Default::default()
+    }
+}
 
-    // Where is our plugin state directory?
-    let plugstate = env::var("MUNIN_PLUGSTATE").unwrap_or_else(|_| "/tmp".to_owned());
-    debug!("Plugin State: {:#?}", plugstate);
-    // Put our cache file there
-    let cache = Path::new(&plugstate).join("munin.cpu1sec.value");
-    debug!("Cache: {:?}", cache);
-    // Our pid is stored here - we also use it to detect if the daemon
-    // part is running, and if not, to start it when called to fetch
-    // data.
-    let pidfile = Path::new(&plugstate).join("munin.cpu1sec.pid");
-    debug!("PIDfile: {:?}", pidfile);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// The struct for our plugin, so we can easily store some values over
+/// the lifetime of our plugin.
+struct CpuPlugin {
+    /// Should we spit out data for detailed graphs for every CPU the system has, or just a total?
+    /// The default will be determined:
+    ///  * from the environment variable cpudetail, if set to 1, detailed graphs will be shown,
+    ///  * anything else will be false, only total graph shown.
+    cpudetail: bool,
 
-    // Does the master support dirtyconfig?
-    let dirtyconfig = match env::var("MUNIN_CAP_DIRTYCONFIG") {
-        Ok(val) => val.eq(&"1"),
-        Err(_) => false,
-    };
-    debug!("Dirtyconfig is: {:?}", dirtyconfig);
+    /// Store old CpuStat data to diff against
+    old: Vec<CpuStat>,
 
-    // Should we do detailed graphs, or only totals?
-    let cpudetail = match env::var("cpudetail") {
-        Ok(val) => val.eq(&"1"),
-        Err(_) => false,
-    };
-    debug!("cpudetail is: {:?}", cpudetail);
+    /// Cachefile path, where the acquire function writes to, and
+    /// fetch reads from.
+    cache: PathBuf,
+}
 
-    // Now go over our other args and see what we are supposed to do
-    match args.len() {
-        // no arguments passed, print data
-        1 => {
-            trace!("No argument, assuming fetch");
-            // Before we fetch we should ensure that we have a data
-            // gatherer running. It locks the pidfile, so lets see if
-            // it's locked or we can have it.
-            let lockfile = !Path::exists(&pidfile) || {
-                let lockedfile = File::open(&pidfile).expect("Could not open pidfile");
-                lockedfile.try_lock_exclusive().is_ok()
-            };
-
-            // If we could lock, it appears that acquire isn't running. Start it.
-            if lockfile {
-                debug!("Could lock the pidfile, will spawn acquire now");
-                Command::new(&args[0])
-                    .arg("acquire".to_owned())
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .expect("failed to execute acquire");
-                debug!("Spawned, sleep for 1s, then continue");
-                // Now we wait one second before going on, so the
-                // newly spawned process had a chance to generate us
-                // some data
-                thread::sleep(Duration::from_secs(1));
-                // }
-            }
-            // And now we can hand out the cached data
-            if let Err(e) = fetch(&cache) {
-                error!("Could not fetch data: {}", e);
-                std::process::exit(6);
-            }
-        }
-
-        // one argument passed, check it and do something
-        2 => match args[1].as_str() {
-            "config" => {
-                trace!("Called to hand out config");
-                config(cpudetail).expect("Could not write out config");
-                // If munin supports the dirtyconfig feature, we can hand out the data
-                if dirtyconfig {
-                    if let Err(e) = fetch(&cache) {
-                        error!("Could not fetch data: {}", e);
-                        std::process::exit(6);
-                    }
-                };
-            }
-            "acquire" => {
-                trace!("Called to gather data");
-                // Only will ever process anything after this line, if
-                // one process has our pidfile already locked, ie. if
-                // another acquire is running. (Or if we can not
-                // daemonize for another reason).
-                if let Err(e) = acquire(&cache, &pidfile, cpudetail) {
-                    error!("Error: {}", e);
-                    std::process::exit(5);
-                };
-            }
-            _ => {
-                error!("Unknown command {}", args[1]);
-                std::process::exit(3);
-            }
-        },
-        // all the other cases
-        _ => {
-            error!("Unknown number of arguments");
-            std::process::exit(4);
+impl Default for CpuPlugin {
+    /// Set defaults
+    fn default() -> Self {
+        // Munin configuration for plugin goes via environment
+        // variables
+        let cpudetail = match env::var("cpudetail") {
+            Ok(val) => val.eq(&"1"),
+            Err(_) => false,
+        };
+        // Pre-fill the "old" data, so we always have something to
+        // diff against in acquire
+        let ks = KernelStats::new().expect("Could not read kernelstats");
+        let mut old: Vec<CpuStat> = if cpudetail {
+            ks.cpu_time
+                .into_iter()
+                .enumerate()
+                .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat, cpudetail))
+                .collect()
+        } else {
+            // If we do not want details, an empty vector is enough.
+            // "Total" values get pushed to it next.
+            vec![]
+        };
+        old.push(CpuStat {
+            user: ks.total.user,
+            nice: ks.total.nice,
+            system: ks.total.system,
+            idle: ks.total.idle,
+            iowait: ks.total.iowait.unwrap_or(0),
+            irq: ks.total.irq.unwrap_or(0),
+            softirq: ks.total.softirq.unwrap_or(0),
+            steal: ks.total.steal.unwrap_or(0),
+            guest: ks.total.guest.unwrap_or(0),
+            guest_nice: ks.total.guest_nice.unwrap_or(0),
+            cpudetail,
+            ..Default::default()
+        });
+        Self {
+            cpudetail,
+            old,
+            cache: Path::new("/tmp/").to_path_buf(),
         }
     }
-    info!("All done");
+}
+
+impl CpuPlugin {
+    /// Write out the detailed config per core/for totals, little helper for the config function
+    fn write_details<W: Write>(&self, handle: &mut BufWriter<W>, cpu: &str) -> Result<()> {
+        writeln!(handle, "graph_title CPU usage {cpu} (1sec)")?;
+        writeln!(handle, "graph_category system")?;
+        writeln!(handle, "update_rate 1",)?;
+        writeln!(
+            handle,
+            "graph_data_size custom 1d, 1s for 1d, 5s for 2d, 10s for 7d, 1m for 1t, 5m for 1y",
+        )?;
+        writeln!(
+            handle,
+            "graph_order system user nice idle iowait irq softirq"
+        )?;
+        let uplimit = if cpu.eq("total") {
+            procfs::CpuInfo::new()?.num_cores() * 100
+        } else {
+            100
+        };
+        writeln!(
+            handle,
+            "graph_args --base 1000 -r --lower-limit 0 --upper-limit {}",
+            uplimit
+        )?;
+        writeln!(handle, "graph_vlabel %")?;
+        writeln!(handle, "graph_scale no")?;
+        writeln!(handle, "graph_info This graph shows how CPU time is spent.")?;
+
+        writeln!(handle, "{cpu}_system.label system")?;
+        writeln!(handle, "{cpu}_system.draw AREA")?;
+        writeln!(handle, "{cpu}_system.min 0")?;
+        writeln!(handle, "{cpu}_system.type GAUGE")?;
+        writeln!(
+            handle,
+            "{cpu}_system.info CPU time spent by the kernel in system activities"
+        )?;
+        writeln!(handle, "{cpu}_user.label user")?;
+        writeln!(handle, "{cpu}_user.draw STACK")?;
+        writeln!(handle, "{cpu}_user.min 0")?;
+        writeln!(handle, "{cpu}_user.type GAUGE")?;
+        writeln!(
+            handle,
+            "{cpu}_user.info CPU time spent by normal programs and daemons"
+        )?;
+        writeln!(handle, "{cpu}_nice.label nice")?;
+        writeln!(handle, "{cpu}_nice.draw STACK")?;
+        writeln!(handle, "{cpu}_nice.min 0")?;
+        writeln!(handle, "{cpu}_nice.type GAUGE")?;
+        writeln!(
+            handle,
+            "{cpu}_nice.info CPU time spent by nice(1)d programs"
+        )?;
+        writeln!(handle, "{cpu}_idle.label idle")?;
+        writeln!(handle, "{cpu}_idle.draw STACK")?;
+        writeln!(handle, "{cpu}_idle.min 0")?;
+        writeln!(handle, "{cpu}_idle.type GAUGE")?;
+        writeln!(handle, "{cpu}_idle.info Idle CPU time")?;
+        writeln!(handle, "{cpu}_iowait.label iowait")?;
+        writeln!(handle, "{cpu}_iowait.draw STACK")?;
+        writeln!(handle, "{cpu}_iowait.min 0")?;
+        writeln!(handle, "{cpu}_iowait.type GAUGE")?;
+        writeln!(handle, "{cpu}_iowait.info CPU time spent waiting for I/O operations to finish when there is nothing else to do.")?;
+        writeln!(handle, "{cpu}_irq.label irq")?;
+        writeln!(handle, "{cpu}_irq.draw STACK")?;
+        writeln!(handle, "{cpu}_irq.min 0")?;
+        writeln!(handle, "{cpu}_irq.type GAUGE")?;
+        writeln!(handle, "{cpu}_irq.info CPU time spent handling interrupts")?;
+        writeln!(handle, "{cpu}_softirq.label softirq")?;
+        writeln!(handle, "{cpu}_softirq.draw STACK")?;
+        writeln!(handle, "{cpu}_softirq.min 0")?;
+        writeln!(handle, "{cpu}_softirq.type GAUGE")?;
+        writeln!(
+            handle,
+            "{cpu}_softirq.info CPU time spent handling \"batched\" interrupts"
+        )?;
+        writeln!(handle, "{cpu}_steal.label steal")?;
+        writeln!(handle, "{cpu}_steal.draw STACK")?;
+        writeln!(handle, "{cpu}_steal.min 0")?;
+        writeln!(handle, "{cpu}_steal.type GAUGE")?;
+        writeln!(handle, "{cpu}_steal.info The time that a virtual CPU had runnable tasks, but the virtual CPU itself was not running")?;
+        writeln!(handle, "{cpu}_guest.label guest")?;
+        writeln!(handle, "{cpu}_guest.draw STACK")?;
+        writeln!(handle, "{cpu}_guest.min 0")?;
+        writeln!(handle, "{cpu}_guest.type GAUGE")?;
+        writeln!(handle, "{cpu}_guest.info The time spent running a virtual CPU for guest operating systems under the control of the Linux kernel.")?;
+        writeln!(handle, "{cpu}_guest_nice.label guest_nice")?;
+        writeln!(handle, "{cpu}_guest_nice.draw STACK")?;
+        writeln!(handle, "{cpu}_guest_nice.min 0")?;
+        writeln!(handle, "{cpu}_guest_nice.type GAUGE")?;
+        writeln!(handle, "{cpu}_guest_nice.info The time spent running a nice(1)d virtual CPU for guest operating systems under the control of the Linux kernel.")?;
+        Ok(())
+    }
+}
+
+impl MuninPlugin for CpuPlugin {
+    fn config<W: Write>(&self, handle: &mut BufWriter<W>) -> Result<()> {
+        if self.cpudetail {
+            writeln!(handle, "multigraph cpu1sec")?;
+        }
+        self.write_details(handle, "total")?;
+        if self.cpudetail {
+            let numcores = procfs::CpuInfo::new()?.num_cores();
+            for num in 0..numcores {
+                let f = format!("cpu{num}");
+                writeln!(handle, "multigraph cpu1sec.{f}")?;
+                self.write_details(handle, &f)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn fetch<W: Write>(&self, handle: &mut BufWriter<W>) -> Result<()> {
+        // We need a temporary file
+        let fetchpath = NamedTempFile::new_in(
+            self.cache
+                .parent()
+                .expect("Could not find useful temp path"),
+        )?;
+        debug!("Fetchcache: {:?}, Cache: {:?}", fetchpath, self.cache);
+        // Rename the cache file, to ensure that acquire doesn't add data
+        // between us outputting data and deleting the file
+        rename(&self.cache, &fetchpath)?;
+        // Want to read the tempfile now
+        let mut fetchfile = std::fs::File::open(&fetchpath)?;
+        // And ask io::copy to just take it all and shove it into the handle
+        io::copy(&mut fetchfile, handle)?;
+        Ok(())
+    }
+
+    /// Check autoconf
+    fn check_autoconf(&self) -> bool {
+        true
+    }
+
+    fn acquire(&mut self, config: &Config) -> Result<()> {
+        let cpudetail = self.cpudetail;
+        let cache = Path::new(&config.plugin_statedir).join("munin.cpu1sec.value");
+
+        let ks = KernelStats::new()?;
+        let mut new: Vec<CpuStat> = if cpudetail {
+            ks.cpu_time
+                .into_iter()
+                .enumerate()
+                .map(|(cpu, stat)| cpu_stat_to_value(cpu as u32, stat, cpudetail))
+                .collect()
+        } else {
+            vec![]
+        };
+        new.push(CpuStat {
+            user: ks.total.user,
+            nice: ks.total.nice,
+            system: ks.total.system,
+            idle: ks.total.idle,
+            iowait: ks.total.iowait.unwrap_or(0),
+            irq: ks.total.irq.unwrap_or(0),
+            softirq: ks.total.softirq.unwrap_or(0),
+            steal: ks.total.steal.unwrap_or(0),
+            guest: ks.total.guest.unwrap_or(0),
+            guest_nice: ks.total.guest_nice.unwrap_or(0),
+            cpudetail,
+            ..Default::default()
+        });
+        // Calculate the difference
+        let diff: Vec<CpuStat> = self
+            .old
+            .iter()
+            .zip(new.iter())
+            .map(|i| (*i.1 - *i.0))
+            .collect();
+
+        let mut cachefd = BufWriter::with_capacity(
+            config.cfgsize,
+            OpenOptions::new()
+                .create(true) // If not there, create
+                .write(true) // We want to write
+                .append(true) // We want to append
+                .open(&cache)?,
+        );
+        for cpustat in diff {
+            // Linebreak is added within the display of cpustat, so we do not need to do this
+            write!(cachefd, "{cpustat}")?;
+        }
+        self.old = new;
+        Ok(())
+    }
+}
+
+fn main() -> Result<()> {
+    SimpleLogger::new().init().unwrap();
+    info!("cpu1sec started");
+
+    // Set out config
+    let mut config = Config::new(String::from("cpu1sec"));
+    // Yes, we want to run as a daemon, gathering data once a second
+    config.daemonize = true;
+    // And our config output can be huge, especially if user wants a
+    // detailed graph of every CPU
+    config.cfgsize = procfs::CpuInfo::new()?.num_cores() * 3000;
+    // Fetchsize 64k is arbitary, but better than default 8k.
+    config.fetchsize = 65535;
+
+    let mut cpu = CpuPlugin {
+        cache: Path::new(&config.plugin_statedir)
+            .join(format!("munin.{}.value", config.plugin_name)),
+        ..Default::default()
+    };
+
+    // Get running
+    cpu.start(config)?;
+    Ok(())
 }
