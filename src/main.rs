@@ -17,7 +17,7 @@ use std::{
 };
 
 /// Stores CPU values (ticks), so we can easily put them in a vector,
-/// substract them to know difference, ...
+/// "substract" them to know difference, ...
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct CpuStat {
     /// Number of CPU data is for. Will be [u32::MAX] for "total". If
@@ -116,7 +116,10 @@ impl Default for CpuStat {
     }
 }
 
-/// For diffing, we want to be able to substract CpuStats
+/// For diffing, we want to be able to "substract" CpuStats.
+///
+/// What we actually do is calculate the absolute difference between
+/// the two numbers.
 impl Sub for CpuStat {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
@@ -125,17 +128,17 @@ impl Sub for CpuStat {
             cpu: self.cpu,
             /// We always take the newer epoch
             epoch: other.epoch,
-            user: self.user - other.user,
-            nice: self.nice - other.nice,
-            system: self.system - other.system,
-            idle: self.idle - other.idle,
-            iowait: self.iowait - other.iowait,
-            irq: self.irq - other.irq,
-            softirq: self.softirq - other.softirq,
-            steal: self.steal - other.steal,
-            guest: self.guest - other.guest,
-            guest_nice: self.guest_nice - other.guest_nice,
-            /// Boolean value does not substract
+            user: self.user.abs_diff(other.user),
+            nice: self.nice.abs_diff(other.nice),
+            system: self.system.abs_diff(other.system),
+            idle: self.idle.abs_diff(other.idle),
+            iowait: self.iowait.abs_diff(other.iowait),
+            irq: self.irq.abs_diff(other.irq),
+            softirq: self.softirq.abs_diff(other.softirq),
+            steal: self.steal.abs_diff(other.steal),
+            guest: self.guest.abs_diff(other.guest),
+            guest_nice: self.guest_nice.abs_diff(other.guest_nice),
+            /// Boolean value do not substract
             cpudetail: self.cpudetail,
         }
     }
@@ -151,11 +154,11 @@ fn test_sub() {
         system: 42,
         idle: 42,
         iowait: 42,
-        irq: 42,
-        softirq: 42,
-        steal: 42,
-        guest: 42,
-        guest_nice: 42,
+        irq: 21,
+        softirq: 21,
+        steal: 21,
+        guest: 21,
+        guest_nice: 21,
         cpudetail: false,
     };
 
@@ -167,11 +170,11 @@ fn test_sub() {
         system: 21,
         idle: 21,
         iowait: 21,
-        irq: 21,
-        softirq: 21,
-        steal: 21,
-        guest: 21,
-        guest_nice: 21,
+        irq: 42,
+        softirq: 42,
+        steal: 42,
+        guest: 42,
+        guest_nice: 42,
         cpudetail: true,
     };
     let diff = one - two;
