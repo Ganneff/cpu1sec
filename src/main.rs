@@ -5,19 +5,16 @@
 #![warn(missing_docs)]
 
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{info, warn};
 use munin_plugin::{Config, MuninPlugin};
 use procfs::{CpuTime, KernelStats};
 use simple_logger::SimpleLogger;
 use std::{
     env,
-    fs::{rename, OpenOptions},
-    io::{self, BufWriter, Write},
+    io::{BufWriter, Write},
     ops::Sub,
-    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tempfile::NamedTempFile;
 
 /// Stores CPU values (ticks), so we can easily put them in a vector,
 /// substract them to know difference, ...
@@ -229,10 +226,6 @@ struct CpuPlugin {
 
     /// Store old CpuStat data to diff against
     old: Vec<CpuStat>,
-
-    /// Cachefile path, where the acquire function writes to, and
-    /// fetch reads from.
-    cache: PathBuf,
 }
 
 impl Default for CpuPlugin {
@@ -272,11 +265,7 @@ impl Default for CpuPlugin {
             cpudetail,
             ..Default::default()
         });
-        Self {
-            cpudetail,
-            old,
-            cache: Path::new("/tmp/").to_path_buf(),
-        }
+        Self { cpudetail, old }
     }
 }
 
@@ -391,32 +380,13 @@ impl MuninPlugin for CpuPlugin {
         Ok(())
     }
 
-    fn fetch<W: Write>(&self, handle: &mut BufWriter<W>) -> Result<()> {
-        // We need a temporary file
-        let fetchpath = NamedTempFile::new_in(
-            self.cache
-                .parent()
-                .expect("Could not find useful temp path"),
-        )?;
-        debug!("Fetchcache: {:?}, Cache: {:?}", fetchpath, self.cache);
-        // Rename the cache file, to ensure that acquire doesn't add data
-        // between us outputting data and deleting the file
-        rename(&self.cache, &fetchpath)?;
-        // Want to read the tempfile now
-        let mut fetchfile = std::fs::File::open(&fetchpath)?;
-        // And ask io::copy to just take it all and shove it into the handle
-        io::copy(&mut fetchfile, handle)?;
-        Ok(())
-    }
-
-    /// Check autoconf
-    fn check_autoconf(&self) -> bool {
-        true
-    }
-
-    fn acquire(&mut self, config: &Config) -> Result<()> {
+    fn acquire<W: Write>(
+        &mut self,
+        handle: &mut BufWriter<W>,
+        _config: &Config,
+        epoch: u64,
+    ) -> Result<()> {
         let cpudetail = self.cpudetail;
-        let cache = Path::new(&config.plugin_statedir).join("munin.cpu1sec.value");
 
         let ks = KernelStats::new()?;
         let mut new: Vec<CpuStat> = if cpudetail {
@@ -440,6 +410,7 @@ impl MuninPlugin for CpuPlugin {
             guest: ks.total.guest.unwrap_or(0),
             guest_nice: ks.total.guest_nice.unwrap_or(0),
             cpudetail,
+            epoch,
             ..Default::default()
         });
         // Calculate the difference
@@ -450,17 +421,9 @@ impl MuninPlugin for CpuPlugin {
             .map(|i| (*i.1 - *i.0))
             .collect();
 
-        let mut cachefd = BufWriter::with_capacity(
-            config.cfgsize,
-            OpenOptions::new()
-                .create(true) // If not there, create
-                .write(true) // We want to write
-                .append(true) // We want to append
-                .open(&cache)?,
-        );
         for cpustat in diff {
             // Linebreak is added within the display of cpustat, so we do not need to do this
-            write!(cachefd, "{cpustat}")?;
+            write!(handle, "{cpustat}")?;
         }
         self.old = new;
         Ok(())
@@ -482,8 +445,6 @@ fn main() -> Result<()> {
     config.fetchsize = 65535;
 
     let mut cpu = CpuPlugin {
-        cache: Path::new(&config.plugin_statedir)
-            .join(format!("munin.{}.value", config.plugin_name)),
         ..Default::default()
     };
 
