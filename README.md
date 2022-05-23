@@ -14,7 +14,7 @@ binary somewhere. Then link it into the munin plugins dir.
 
 When first called without arguments, cpu1sec will spawn itself into the
 background to gather data. This can also be triggered by calling it
-with the `acquire` parameter.
+with the `acquire &` parameter.
 
 ## Detailed graphs
 Per default this plugin will only produce a "total" graph, similar to
@@ -45,16 +45,15 @@ out of disk space!
 1. Download or clone this repo
 1. Inside your copy, run `cargo build --release --target
    x86_64-unknown-linux-musl`
-1. Copy `target/x86_64-unknown-linux-musl/release/cpu1sec` to a useful
-   place on your system and link it into `/etc/munin/plugins/` (or
-   place it directly into that directory).
+1. Copy `target/x86_64-unknown-linux-musl/release/munin-cpu1sec` to a useful
+   place on your system and link it to `/etc/munin/plugins/cpu1sec`.
 1. If you want the detailed CPU graphs, put the neccessary lines (see
    above) into munins plugin config.
 1. Restart munin-node (on Debian: `systemctl munin-node restart`)
 
 ## Local build
 Use cargo build as usual. Note that the release build contains much
-less logging code than the debug build, so if you want to find out,
+less logging code than the debug build, so if you want to find out
 why something does not work as planned, ensure to use a debug build
 (`cargo build` instead of `cargo build --release`).
 

@@ -1,29 +1,29 @@
 [package]
-name = "cpu1sec"
-version = "0.1.3"
+name = "munin-cpu1sec"
+version = "0.2.0"
 edition = "2021"
 description = "munin graph plugin for cpu statistics, 1second resolution"
 license = "GPL-3.0-only"
 authors = [ "Joerg Jaspert <joerg@ganneff.de>" ]
 readme = "README.md"
-repository = "https://github.com/Ganneff/cpu1sec"
+repository = "https://github.com/Ganneff/munin-cpu1sec"
 keywords = [ "munin", "statistics", "daemon" ]
 
 [package.metadata.deb]
 assets = [
-    ["target/release/cpu1sec", "usr/share/munin/plugins/cpu1sec", "755"],
+    ["target/release/munin-cpu1sec", "usr/share/munin/plugins/cpu1sec", "755"],
 ]
 maintainer-scripts = "debian/"
 section = "net"
 priority = "optional"
-extended-description="1second resolution graphs for CPU data"
+extended-description="1second munin resolution graphs for CPU data"
 maintainer = "Joerg Jaspert <joerg@ganneff.de>"
 copyright = "2022, Joerg Jaspert <joerg@ganneff.de>"
-depends = ""
+depends = "munin-node"
 
 [package.metadata.generate-rpm]
 assets = [
-    { source = "target/release/cpu1sec", dest = "/usr/share/munin/plugins/cpu1sec", mode = "755" },
+    { source = "target/release/munin-cpu1sec", dest = "/usr/share/munin/plugins/cpu1sec", mode = "755" },
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -35,7 +35,7 @@ tempfile = "^3.3"
 parse_int = "^0.6"
 procfs = "^0.12"
 anyhow = "1.0.57"
-munin-plugin = "0.1.5"
+munin-plugin = "0.1.12"
 
 [profile.release]
 lto = true

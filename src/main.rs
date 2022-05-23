@@ -1,4 +1,4 @@
-//! cpu1sec - Collect CPU usage data for munin every second
+//! munin-cpu1sec - Collect CPU usage data for munin every second
 //!
 // SPDX-License-Identifier:  GPL-3.0-only
 
@@ -119,7 +119,8 @@ impl Default for CpuStat {
 /// For diffing, we want to be able to "substract" CpuStats.
 ///
 /// What we actually do is calculate the absolute difference between
-/// the two numbers.
+/// the two numbers, but for a munin plugin that is what is of
+/// interest to us.
 impl Sub for CpuStat {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
@@ -373,8 +374,7 @@ impl MuninPlugin for CpuPlugin {
         }
         self.write_details(handle, "total")?;
         if self.cpudetail {
-            let numcores = procfs::CpuInfo::new()?.num_cores();
-            for num in 0..numcores {
+            for num in 0..procfs::CpuInfo::new()?.num_cores() {
                 let f = format!("cpu{num}");
                 writeln!(handle, "multigraph cpu1sec.{f}")?;
                 self.write_details(handle, &f)?;
@@ -416,7 +416,7 @@ impl MuninPlugin for CpuPlugin {
             epoch,
             ..Default::default()
         });
-        // Calculate the difference
+        // Calculate the "difference"
         let diff: Vec<CpuStat> = self
             .old
             .iter()
@@ -425,7 +425,10 @@ impl MuninPlugin for CpuPlugin {
             .collect();
 
         for cpustat in diff {
-            // Linebreak is added within the display of cpustat, so we do not need to do this
+            // Linebreak is added within the display of cpustat, so we
+            // do not need to do this Also, this one line here will
+            // translate to something around a dozen actual lines
+            // written out.
             write!(handle, "{cpustat}")?;
         }
         self.old = new;
