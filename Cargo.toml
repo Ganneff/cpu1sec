@@ -1,6 +1,6 @@
 [package]
 name = "munin-cpu1sec"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "munin graph plugin for cpu statistics, 1second resolution"
 license = "GPL-3.0-only"
@@ -32,8 +32,6 @@ assets = [
 [dependencies]
 log = { version = "0.4", features = ["max_level_trace", "release_max_level_warn"] }
 simple_logger = "^2.1"
-tempfile = "^3.3"
-parse_int = "^0.6"
 procfs = "^0.12"
 anyhow = "1.0.57"
 munin-plugin = "0.1.12"

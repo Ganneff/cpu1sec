@@ -180,10 +180,8 @@ dependencies = [
  "anyhow",
  "log",
  "munin-plugin",
- "parse_int",
  "procfs",
  "simple_logger",
- "tempfile",
 ]
 
 [[package]]
@@ -233,15 +231,6 @@ name = "once_cell"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7709cef83f0c1f58f666e746a08b21e0085f7440fa6a29cc194d68aac97a4225"
-
-[[package]]
-name = "parse_int"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d695b79916a2c08bcff7be7647ab60d1402885265005a6658ffe6d763553c5a"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "procfs"
