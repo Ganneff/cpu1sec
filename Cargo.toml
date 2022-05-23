@@ -4,10 +4,11 @@ version = "0.2.0"
 edition = "2021"
 description = "munin graph plugin for cpu statistics, 1second resolution"
 license = "GPL-3.0-only"
-authors = [ "Joerg Jaspert <joerg@ganneff.de>" ]
+authors = ["Jörg Jaspert <joerg@debian.org>"]
 readme = "README.md"
 repository = "https://github.com/Ganneff/munin-cpu1sec"
-keywords = [ "munin", "statistics", "daemon" ]
+keywords = [ "munin", "statistics", "daemon", "munin-plugin" ]
+categories = [ "command-line-utilities" ]
 
 [package.metadata.deb]
 assets = [
