@@ -200,9 +200,9 @@ dependencies = [
 
 [[package]]
 name = "munin-plugin"
-version = "0.1.14"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "572992950d217f9e5651609c59dcb698093f00f984a71700f095025bd2f7c461"
+checksum = "297723f3226635932e3dffb0d8744f8a3eb6e47d9fc04df99c23709485a91482"
 dependencies = [
  "anyhow",
  "daemonize",
